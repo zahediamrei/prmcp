@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Premiere Connector</title>
+  <style>
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+      background: #232323;
+      color: #c8c8c8;
+      padding: 12px;
+      font-size: 12px;
+      margin: 0;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    header { display: flex; align-items: center; justify-content: space-between; }
+    h1 { font-size: 12px; font-weight: 600; color: #e6e6e6; margin: 0; letter-spacing: .01em; }
+    /* One line of state: a dot that says it all, then a word or two. */
+    #status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #e6e6e6; }
+    #status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; flex: none; background: #777; }
+    #status.connected::before { background: #4fc26b; box-shadow: 0 0 0 3px rgba(79, 194, 107, .18); }
+    #status.connecting::before { background: #e0b54a; }
+    #status.disconnected::before { background: #f06b6b; }
+    button {
+      background: transparent;
+      color: #c8c8c8;
+      border: 1px solid #4a4a4a;
+      padding: 3px 10px;
+      border-radius: 999px;
+      cursor: pointer;
+      font: inherit;
+    }
+    button:hover { border-color: #6a6a6a; color: #fff; }
+    details { border-top: 1px solid #333; padding-top: 8px; }
+    summary { cursor: pointer; color: #8a8a8a; list-style: none; }
+    summary::-webkit-details-marker { display: none; }
+    summary::before { content: "▸ "; }
+    details[open] summary::before { content: "▾ "; }
+    #log {
+      background: #1a1a1a;
+      border-radius: 6px;
+      padding: 8px;
+      height: 140px;
+      overflow-y: auto;
+      font-family: Menlo, Consolas, monospace;
+      font-size: 10px;
+      line-height: 1.5;
+      color: #9a9a9a;
+      white-space: pre-wrap;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Premiere Connector</h1>
+    <button id="reconnect">Reconnect</button>
+  </header>
+  <div id="status" class="connecting">Starting…</div>
+  <details>
+    <summary>Activity</summary>
+    <div id="log"></div>
+  </details>
+  <script src="js/CSInterface.js"></script>
+  <script src="js/hmac.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
