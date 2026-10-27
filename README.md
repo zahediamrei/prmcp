@@ -1,11 +1,11 @@
-# Premiere Connector
+# prmcp
 
-Edit in Adobe Premiere Pro by talking to Claude. Premiere Connector is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server and a small Premiere panel that give Claude about 150 tools for cutting, trimming, speed changes, effects, keyframes, transitions, titles, captions, audio levels, markers and exports. It can also render a frame, so Claude *sees* the result of an edit.
+Edit in Adobe Premiere Pro by talking to Claude. prmcp is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server and a small Premiere panel (called **Premiere Connector** inside Premiere) that give Claude 158 tools for cutting, trimming, speed changes, effects, keyframes, transitions, titles, captions, audio levels, markers and exports. It can also render a frame, so Claude *sees* the result of an edit.
 
 It comes with a **skill**: the order to work in and the rules learned from real projects, so Claude doesn't repeat the mistakes that break a timeline (clips that can't be extended, duplicated templates, invisible characters lost from text).
 
 
-Premiere Connector started from [antipaster/Adobe-Premiere-Pro-MCP](https://github.com/antipaster/Adobe-Premiere-Pro-MCP) (MIT) and has been extended a great deal since, together with the skill.
+prmcp started from [antipaster/Adobe-Premiere-Pro-MCP](https://github.com/antipaster/Adobe-Premiere-Pro-MCP) (MIT) and has been extended a great deal since, together with the skill.
 
 ![Premiere Pro with the Premiere Connector panel: a sequence, a title and captions made through Claude](assets/premiere-connector.png)
 
@@ -30,16 +30,16 @@ Everything runs on your Mac or PC. The panel is signed with a self-signed certif
 ### macOS
 
 ```bash
-git clone https://github.com/zahediamrei/premiere-connector.git
-cd premiere-connector
+git clone https://github.com/zahediamrei/prmcp.git
+cd prmcp
 ./install.sh
 ```
 
 ### Windows
 
 ```bat
-git clone https://github.com/zahediamrei/premiere-connector.git
-cd premiere-connector
+git clone https://github.com/zahediamrei/prmcp.git
+cd prmcp
 install.bat
 ```
 
