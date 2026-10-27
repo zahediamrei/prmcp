@@ -1,6 +1,6 @@
 # prmcp
 
-Edit in Adobe Premiere Pro by talking to Claude. prmcp is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server and a small Premiere panel (called **Premiere Connector** inside Premiere) that give Claude 158 tools for cutting, trimming, speed changes, effects, keyframes, transitions, titles, captions, audio levels, markers and exports. It can also render a frame, so Claude *sees* the result of an edit.
+Edit in Adobe Premiere Pro by talking to Claude. prmcp is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server and a small Premiere panel (called **Premiere Connector** inside Premiere) that give Claude 162 tools for cutting, trimming, speed changes, effects, keyframes, transitions, titles, captions, audio levels, markers and exports. It can also render a frame, so Claude *sees* the result of an edit.
 
 It comes with a **skill**: the order to work in and the rules learned from real projects, so Claude doesn't repeat the mistakes that break a timeline (clips that can't be extended, duplicated templates, invisible characters lost from text).
 
@@ -74,6 +74,16 @@ Ask for edits in plain language, for example:
 - "Export the sequence as YouTube 1080p to my Desktop."
 
 Conventions the tools use: times are in **seconds**; tracks are **0-based** (V1 = video track 0, A1 = audio track 0); clips are addressed by track + clip index from left to right (indexes change after edits, and Claude re-reads the timeline).
+
+## Safety
+
+Premiere's scripting API has no grouped undo, no change events and addresses clips only by position. prmcp makes up for it on every edit:
+
+- **Stable clip IDs.** Every clip has a `clipId`. Tools take it instead of track + clip index, so Claude doesn't lose a clip when other edits shift the indexes. (A clip cut in two keeps its ID on the left piece; the right piece gets a new one.)
+- **Change report.** Each edit returns what it changed on the timeline: clips added, removed, moved, trimmed, renamed.
+- **Manual edits noticed.** If you change the timeline by hand between Claude's edits, the next edit reports what changed, so Claude works from the timeline as it is.
+- **Checkpoints.** Risky edits (`ripple_delete_range`, `close_gaps`, `razor_all_tracks`, `slide_clip`, removing tracks, ripple removes and speed changes) first copy the sequence into a *prmcp checkpoints* bin. `restore_checkpoint` reverts the whole edit in one step, and an edit that fails halfway is rolled back automatically. The newest 10 checkpoints per sequence are kept; `create_checkpoint` makes one before any larger job.
+- **Dry run.** Timeline edits take `dry_run: true`: the edit is tried on a temporary copy of the sequence, which is then deleted, and you get the list of what would change.
 
 ## Tools
 

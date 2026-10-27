@@ -275,3 +275,4 @@ function closeSequence(nameOrId) {
   seq.close();
   return {};
 }
+

@@ -13,8 +13,11 @@ import { registerGraphicsTools } from "./graphics.js";
 import { registerPlaybackTools } from "./playback.js";
 import { registerScriptingTools } from "./scripting.js";
 import { registerAiTools } from "./ai.js";
+import { registerSafetyTools } from "./safety.js";
+import { installSafety } from "../safety.js";
 
 export function registerAllTools(server: McpServer) {
+  installSafety(server); // must come first: it wraps every tool registered below
   registerConnectionTools(server);
   registerProjectTools(server);
   registerSequenceTools(server);
@@ -29,4 +32,5 @@ export function registerAllTools(server: McpServer) {
   registerPlaybackTools(server);
   registerScriptingTools(server);
   registerAiTools(server);
+  registerSafetyTools(server);
 }
