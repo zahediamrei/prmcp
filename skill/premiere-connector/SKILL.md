@@ -11,11 +11,13 @@ open with **Window > Extensions > Premiere Connector**.
 ## Start here
 
 1. `get_status`, then `get_active_sequence` and `get_timeline_clips`. Know the edit before changing it.
-2. Clips are addressed by track type, track index and clip index, all 0-based. Indexes change after every cut, move or
-   delete: read the timeline again before the next edit instead of guessing.
-3. After a visual change, look at it with `export_frame`.
-4. Something went wrong: `undo`.
-5. When a tool can't do something, `execute_extendscript` runs ExtendScript directly. The rules below
+2. Address clips by `clipId` (from `get_timeline_clips`); it survives other edits. Track/clip indexes (0-based) work
+   too but change after every cut, move or delete.
+3. Read each edit's `changes`. If a result has `changedOutsidePrmcp`, the user edited by hand: adjust to that.
+4. After a visual change, look at it with `export_frame`.
+5. Something went wrong: `restore_checkpoint` with the edit's `checkpoint` reverts it in one step (`undo` is one scripted
+   step at a time). Before a long job, `create_checkpoint`; to preview a cut, pass `dry_run: true`.
+6. When a tool can't do something, `execute_extendscript` runs ExtendScript directly. The rules below
    say where the obvious approach breaks.
 
 Each section below is a rule learned from a real problem. Add new ones at the end. Only general Premiere rules belong

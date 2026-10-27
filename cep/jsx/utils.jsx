@@ -184,6 +184,13 @@ function _linkedItems(clip) {
   return out;
 }
 
+// A clip's ID stays the same while it is moved, trimmed or re-indexed, unlike
+// its clip index. Premiere gives every track item a nodeId.
+function _clipId(clip) {
+  try { if (clip.nodeId) return String(clip.nodeId); } catch (ex) {}
+  return null;
+}
+
 function _clipInfo(clip, trackType, trackIndex, clipIndex) {
   var speed = 1;
   try { speed = clip.getSpeed() || 1; } catch (ex) {}
@@ -191,6 +198,7 @@ function _clipInfo(clip, trackType, trackIndex, clipIndex) {
   var inPoint = _sec(clip.inPoint) * speed;
   var duration = _sec(clip.duration);
   var info = {
+    clipId: _clipId(clip),
     trackType: trackType,
     trackIndex: trackIndex,
     clipIndex: clipIndex,

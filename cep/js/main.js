@@ -147,7 +147,7 @@ function loadJSX() {
   var jsxPath = (cs.getSystemPath(SystemPath.EXTENSION) + "/jsx").replace(/\\/g, "/");
   var modules = [
     "json2-polyfill", "utils", "project", "sequence", "timeline", "effects",
-    "markers", "audio", "export", "metadata", "captions", "graphics", "playback"
+    "markers", "audio", "export", "metadata", "captions", "graphics", "playback", "safety"
   ];
 
   cs.evalScript("1+1", function (probe) {
