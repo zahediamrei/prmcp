@@ -7,7 +7,6 @@
 
 var _CHECKPOINT_BIN = "prmcp checkpoints";
 var _CHECKPOINT_TAG = " · before ";
-var _CHECKPOINT_KEEP = 10;
 
 /* ---------- snapshots and clip IDs ---------- */
 
@@ -100,34 +99,27 @@ function _cloneActive() {
 function createCheckpoint(label) {
   var pair = _cloneActive();
   var copy = pair.copy;
-  copy.name = pair.seq.name + _CHECKPOINT_TAG + (label || "edit") + " " + _clockStamp();
-  try { copy.projectItem.moveBin(_checkpointBin()); } catch (ex) {}
-  var pruned = _pruneCheckpoints(pair.seq.name, copy.sequenceID);
-  var out = { name: copy.name, id: copy.sequenceID, of: pair.seq.name, ofId: pair.seq.sequenceID };
-  if (pruned) out.oldCheckpointsRemoved = pruned;
-  return out;
+  try {
+    copy.name = pair.seq.name + _CHECKPOINT_TAG + (label || "edit") + " " + _clockStamp();
+    copy.projectItem.moveBin(_checkpointBin());
+  } catch (ex) {
+    try { app.project.deleteSequence(copy); } catch (ex2) {}
+    throw ex;
+  }
+  return { name: copy.name, id: copy.sequenceID, of: pair.seq.name, ofId: pair.seq.sequenceID };
 }
 
-// Checkpoints of one sequence, oldest first (project order is creation order).
-function _checkpointsOf(seqName) {
-  var out = [];
-  var seqs = _project().sequences;
-  for (var i = 0; i < seqs.numSequences; i++) {
-    var s = seqs[i];
-    if (s.name.indexOf(seqName + _CHECKPOINT_TAG) === 0 && _binPathOf(s.projectItem) === _CHECKPOINT_BIN) out.push(s);
-  }
-  return out;
+function _inCheckpointBin(seq) {
+  return _binPathOf(seq.projectItem) === _CHECKPOINT_BIN;
 }
 
-// Keep only the newest checkpoints of a sequence so the bin doesn't fill up.
-function _pruneCheckpoints(seqName, keepId) {
-  var list = _checkpointsOf(seqName);
-  var removed = 0;
-  for (var i = 0; i < list.length - _CHECKPOINT_KEEP; i++) {
-    if (list[i].sequenceID === keepId) continue;
-    try { app.project.deleteSequence(list[i]); removed++; } catch (ex) {}
-  }
-  return removed;
+// Delete one sequence, only if it is in the checkpoints bin (used for pruning).
+function deleteCheckpoint(id) {
+  var s = _findSequence(id);
+  if (!s || !_inCheckpointBin(s)) return { deleted: false };
+  if (_project().activeSequence && _project().activeSequence.sequenceID === s.sequenceID) return { deleted: false };
+  app.project.deleteSequence(s);
+  return { deleted: true };
 }
 
 function listCheckpoints() {
@@ -136,7 +128,7 @@ function listCheckpoints() {
   if (!bin) return out;
   var seqs = _project().sequences;
   for (var i = 0; i < seqs.numSequences; i++) {
-    if (_binPathOf(seqs[i].projectItem) === _CHECKPOINT_BIN) out.push({ name: seqs[i].name, id: seqs[i].sequenceID });
+    if (_inCheckpointBin(seqs[i])) out.push({ name: seqs[i].name, id: seqs[i].sequenceID });
   }
   return out;
 }
@@ -168,8 +160,10 @@ function restoreCheckpoint(nameOrId, targetNameOrId) {
   app.project.openSequence(cp.sequenceID);
   return {
     restored: originalName,
+    restoredId: cp.sequenceID,
     editedVersionKeptAs: target.name,
-    note: "Nested sequences or other references to the edited version still point to it.",
+    editedVersionId: target.sequenceID,
+    note: "Clip IDs changed (this is a different copy of the sequence): call get_timeline_clips before addressing clips. Nested sequences or other references to the edited version still point to it.",
   };
 }
 
@@ -178,9 +172,18 @@ function restoreCheckpoint(nameOrId, targetNameOrId) {
 // Open a throwaway copy of the active sequence so an edit can be tried on it.
 function beginDryRun() {
   var pair = _cloneActive();
-  pair.copy.name = pair.seq.name + " · preview " + _clockStamp();
-  app.project.openSequence(pair.copy.sequenceID);
-  return { previewId: pair.copy.sequenceID, originalId: pair.seq.sequenceID };
+  var copy = pair.copy;
+  try {
+    copy.name = pair.seq.name + " · preview " + _clockStamp();
+    app.project.openSequence(copy.sequenceID);
+    var active = _project().activeSequence;
+    if (!active || active.sequenceID !== copy.sequenceID) _fail("Premiere did not open the preview copy, so the dry run was not started");
+  } catch (ex) {
+    try { app.project.openSequence(pair.seq.sequenceID); } catch (ex2) {}
+    try { app.project.deleteSequence(copy); } catch (ex3) {}
+    throw ex;
+  }
+  return { previewId: copy.sequenceID, previewName: copy.name, originalId: pair.seq.sequenceID };
 }
 
 // Delete the preview copy and reopen the original.

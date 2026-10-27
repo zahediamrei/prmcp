@@ -8,6 +8,9 @@
 // - dry_run: structural edits can be tried on a throwaway copy of the sequence
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { dirname, join } from "path";
 import { callPremiere } from "./bridge.js";
 import { clipId as clipIdSchema } from "./tools/common.js";
 
@@ -41,6 +44,7 @@ const EDIT_TOOLS = new Set([
   "add_tracks", "remove_track", "remove_empty_tracks", "scene_edit_detection", "create_subsequence",
   "add_text", "import_mogrt", "import_library_graphic", "place_mogrt_with_media", "replace_mogrt_media",
   "add_text_captions", "elevenlabs_voice_lines", "elevenlabs_generate_speech",
+  "set_clip_mute", "delete_project_items", "relink_media", "consolidate_duplicates",
   "undo", "redo", "execute_extendscript", "restore_checkpoint",
 ]);
 
@@ -90,6 +94,79 @@ async function snapshot(): Promise<Snap | null> {
     return null;
   }
 }
+
+/* ---------- checkpoint registry ----------
+   Which sequence each checkpoint (and each version replaced by a restore) was
+   copied from, and when, kept in a file so old ones can be pruned per sequence. */
+
+const KEEP_PER_SEQUENCE = 10;
+const REGISTRY = join(homedir(), "Documents", "Premiere Connector", "checkpoints.json");
+type RegEntry = { id: string; ofId: string; at: number };
+
+function loadRegistry(): RegEntry[] {
+  try {
+    return existsSync(REGISTRY) ? (JSON.parse(readFileSync(REGISTRY, "utf8")) as RegEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRegistry(reg: RegEntry[]) {
+  try {
+    mkdirSync(dirname(REGISTRY), { recursive: true });
+    writeFileSync(REGISTRY, JSON.stringify(reg, null, 1));
+  } catch {}
+}
+
+// Keep the newest copies of one sequence; delete the rest (only from the checkpoints bin).
+async function prune(reg: RegEntry[], ofId: string): Promise<{ reg: RegEntry[]; removed: number }> {
+  const mine = reg.filter((e) => e.ofId === ofId).sort((a, b) => b.at - a.at);
+  const drop = new Set<string>();
+  let removed = 0;
+  for (const e of mine.slice(KEEP_PER_SEQUENCE)) {
+    try {
+      const r = (await callPremiere("deleteCheckpoint", [e.id])) as { deleted?: boolean };
+      if (r?.deleted) removed++;
+    } catch {}
+    drop.add(e.id); // deleted, gone already, or moved out of the bin by the user
+  }
+  return { reg: reg.filter((e) => !drop.has(e.id)), removed };
+}
+
+type Checkpoint = { name: string; id: string; of: string; ofId: string; oldCheckpointsRemoved?: number };
+
+export async function createCheckpoint(label?: string): Promise<Checkpoint> {
+  const cp = (await callPremiere("createCheckpoint", [label ?? null])) as Checkpoint;
+  let reg = loadRegistry();
+  reg.push({ id: cp.id, ofId: cp.ofId, at: Date.now() });
+  const p = await prune(reg, cp.ofId);
+  saveRegistry(p.reg);
+  if (p.removed) cp.oldCheckpointsRemoved = p.removed;
+  lastHousekeeping = "a checkpoint copy";
+  return cp;
+}
+
+type Restored = { restored: string; restoredId: string; editedVersionKeptAs: string; editedVersionId: string };
+
+export async function restoreCheckpoint(checkpoint: string, target?: string): Promise<Restored> {
+  const r = (await callPremiere("restoreCheckpoint", [checkpoint, target ?? null])) as Restored;
+  // The restored copy is now the live sequence: its family follows it.
+  let reg = loadRegistry().filter((e) => e.id !== r.restoredId);
+  for (const e of reg) if (e.ofId === r.editedVersionId) e.ofId = r.restoredId;
+  reg.push({ id: r.editedVersionId, ofId: r.restoredId, at: Date.now() });
+  const p = await prune(reg, r.restoredId);
+  saveRegistry(p.reg);
+  lastSeen.delete(r.editedVersionId);
+  return r;
+}
+
+export function forgetCheckpoints() {
+  saveRegistry([]);
+}
+
+// Checkpoints and dry runs add their own steps (copy, rename, delete) to
+// Premiere's undo history, so undo right after one doesn't undo the user's edit.
+let lastHousekeeping: string | null = null;
 
 /* ---------- diffs ---------- */
 
@@ -231,40 +308,59 @@ async function runEdit(name: string, args: Ctx, call: () => Promise<ToolResult>)
 
   if (dryRun) {
     if (!before) throw new Error("No active sequence to preview the edit on.");
-    const dr = (await callPremiere("beginDryRun", [])) as { previewId: string; originalId: string };
+    const dr = (await callPremiere("beginDryRun", [])) as { previewId: string; previewName: string; originalId: string };
     let result: ToolResult | undefined;
     let failure: string | undefined;
     let changes: string[] = [];
+    let cleanup: string | undefined;
     try {
       const pBefore = await snapshot();
+      // Never run the edit unless the preview copy is what's open.
+      if (!pBefore || pBefore.sequenceId !== dr.previewId) {
+        throw new Error("The preview copy did not open, so the dry run was stopped before editing anything.");
+      }
       try {
         result = await call();
+        if (result?.isError) failure = String(result.content?.[0]?.text ?? "the edit reported an error");
       } catch (e) {
         failure = errorText(e);
       }
       const pAfter = await snapshot();
-      if (pBefore && pAfter) {
+      if (pAfter && pAfter.sequenceId === dr.previewId) {
         mapPreviewIds(pBefore, pAfter, before);
         changes = diff(pBefore, pAfter);
       }
     } finally {
-      await callPremiere("endDryRun", [dr.previewId, dr.originalId]);
+      try {
+        await callPremiere("endDryRun", [dr.previewId, dr.originalId]);
+      } catch (e) {
+        cleanup = `Could not close the preview copy (${errorText(e)}). Open "${before.sequenceName}" again and delete the sequence "${dr.previewName}"; it is only a copy.`;
+      }
     }
     lastSeen.set(before.sequenceId, before);
+    lastHousekeeping = "a dry run";
     const preview: Record<string, unknown> = {
       dryRun: true,
       note: "Nothing was changed. This is what the edit would do, tried on a temporary copy of the sequence (now deleted).",
       wouldChange: changes.length ? changes : ["no clip changes"],
     };
     if (failure) preview.wouldFail = failure;
+    if (cleanup) preview.warning = cleanup;
     return withNote({ content: result?.content ?? [] }, { ...preview, ...note });
   }
 
-  let checkpoint: { name: string; id: string; ofId: string } | undefined;
+  if ((name === "undo" || name === "redo") && lastHousekeeping) {
+    note.warning =
+      `Premiere's undo history also holds prmcp's own steps from ${lastHousekeeping} (copying, renaming or deleting a sequence), ` +
+      "so this may have undone those instead of an edit. Check `changes`; restore_checkpoint is the reliable way back.";
+  }
+
+  let checkpoint: Checkpoint | undefined;
   const risky = CHECKPOINT_TOOLS[name];
   if (risky && risky(args) && wantCheckpoint && before) {
-    checkpoint = (await callPremiere("createCheckpoint", [name.replace(/_/g, " ")])) as typeof checkpoint;
+    checkpoint = await createCheckpoint(name.replace(/_/g, " "));
   }
+  if (!checkpoint) lastHousekeeping = null;
 
   let result: ToolResult;
   try {
@@ -274,14 +370,14 @@ async function runEdit(name: string, args: Ctx, call: () => Promise<ToolResult>)
     if (!checkpoint) throw e;
     let rolledBack = false;
     try {
-      await callPremiere("restoreCheckpoint", [checkpoint.id, checkpoint.ofId]);
+      await restoreCheckpoint(checkpoint.id, checkpoint.ofId);
       rolledBack = true;
     } catch {}
     lastSeen.delete(before!.sequenceId);
     throw new Error(
       `${errorText(e)}\n` +
         (rolledBack
-          ? "The sequence was rolled back to how it was before this edit."
+          ? "The sequence was rolled back to how it was before this edit. Clip IDs changed: call get_timeline_clips before the next edit."
           : `Rolling back failed; restore_checkpoint "${checkpoint.name}" puts the sequence back as it was.`)
     );
   }
@@ -298,6 +394,7 @@ async function runEdit(name: string, args: Ctx, call: () => Promise<ToolResult>)
   }
   if (checkpoint) {
     note.checkpoint = checkpoint.name;
+    if (checkpoint.oldCheckpointsRemoved) note.oldCheckpointsRemoved = checkpoint.oldCheckpointsRemoved;
     note.revert = "restore_checkpoint with this checkpoint undoes the whole edit in one step";
   }
   return withNote(result, note);
@@ -349,15 +446,19 @@ export function installSafety(server: McpServer) {
     const isEdit = EDIT_TOOLS.has(name);
     const isRead = TIMELINE_READS.has(name);
     const resolves = !!shape && hasClipArgs(shape);
+    // Clip address fields the tool required before clipId made them optional.
+    const required = shape && "clipIndex" in shape
+      ? ["trackType", "trackIndex", "clipIndex"].filter((k) => shape[k] && !shape[k].isOptional())
+      : [];
 
     rest[rest.length - 1] = (args: Ctx = {}, extra: unknown) => {
       if (name === "get_status") return handler(args, extra);
       return serial(async () => {
         if (resolves) {
-          const s = shape as Record<string, z.ZodTypeAny>;
-          await resolveClipIds(name, args, "trackType" in s);
-          if (s.clipIndex && !s.clipIndex.isOptional() && args.clipIndex === undefined) {
-            throw new Error("Give the clip as clipId, or as trackType + trackIndex + clipIndex (see get_timeline_clips).");
+          await resolveClipIds(name, args, "trackType" in (shape as object));
+          const missing = required.filter((k) => args[k] === undefined);
+          if (missing.length) {
+            throw new Error(`Give the clip as clipId, or as ${required.join(" + ")} (see get_timeline_clips); missing ${missing.join(", ")}.`);
           }
           delete args.clipId;
         }
