@@ -108,9 +108,13 @@ export function registerTimelineTools(server: McpServer) {
 
   server.tool(
     "ripple_delete_range",
-    "Remove a time range from every unlocked track and close the gap (great for cutting out mistakes, silences or a section)",
-    { start: z.number().min(0).describe("Seconds"), end: z.number().min(0).describe("Seconds") },
-    ({ start, end }) => run("rippleDeleteRange", [start, end])
+    "Remove a time range from every unlocked track and close the gap (great for cutting out mistakes, silences or a section). Premiere records this as many undo steps, so a checkpoint copy of the sequence is taken first: restore_checkpoint reverts the whole edit at once, and a failed edit is rolled back automatically.",
+    {
+      start: z.number().min(0).describe("Seconds"),
+      end: z.number().min(0).describe("Seconds"),
+      checkpoint: z.boolean().optional().describe("Copy the sequence first so the edit can be reverted in one step (default true)"),
+    },
+    ({ start, end, checkpoint }) => run("rippleDeleteRange", [start, end, checkpoint !== false])
   );
 
   server.tool(

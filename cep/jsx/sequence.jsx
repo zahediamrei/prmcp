@@ -275,3 +275,71 @@ function closeSequence(nameOrId) {
   seq.close();
   return {};
 }
+
+/* ---------- checkpoints ----------
+   Premiere's scripting API records every razor, remove and move as its own undo
+   step and has no undo groups. A checkpoint is a copy of the sequence taken
+   before a multi-step edit, so the whole edit can be reverted in one go. */
+
+var _CHECKPOINT_BIN = "prmcp checkpoints";
+
+function _clockStamp() {
+  var d = new Date();
+  function p(n) { return (n < 10 ? "0" : "") + n; }
+  return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+}
+
+function _checkpointBin() {
+  return _findBinByPath(_CHECKPOINT_BIN) || _project().rootItem.createBin(_CHECKPOINT_BIN);
+}
+
+// Bin path ("A/B") of a project item, from its treePath ("\Project.prproj\A\B\Item").
+function _binPathOf(item) {
+  try {
+    var parts = String(item.treePath).split("\\");
+    var out = [];
+    for (var i = 2; i < parts.length - 1; i++) if (parts[i] !== "") out.push(parts[i]);
+    return out.join("/");
+  } catch (ex) {
+    return "";
+  }
+}
+
+// Copy the active sequence into the checkpoints bin; the original stays active.
+function _checkpoint(label) {
+  var seq = _seq();
+  var before = _sequenceIdSet();
+  seq.clone();
+  var copy = _newSequenceSince(before);
+  if (!copy) _fail("Could not create a checkpoint (sequence clone failed)");
+  copy.name = seq.name + " · before " + (label || "edit") + " " + _clockStamp();
+  try { copy.projectItem.moveBin(_checkpointBin()); } catch (ex) {}
+  if (!_project().activeSequence || _project().activeSequence.sequenceID !== seq.sequenceID) {
+    app.project.openSequence(seq.sequenceID);
+  }
+  return { name: copy.name, id: copy.sequenceID, of: seq.name };
+}
+
+function createCheckpoint(label) {
+  return _checkpoint(label);
+}
+
+// Put a checkpoint back in place of the sequence it was taken from. The edited
+// version is kept (renamed) in the checkpoints bin, never deleted.
+function restoreCheckpoint(nameOrId, targetNameOrId) {
+  var cp = _getSequence(nameOrId);
+  var target = targetNameOrId ? _getSequence(targetNameOrId) : _seq();
+  if (cp.sequenceID === target.sequenceID) _fail("That checkpoint is the active sequence; pass the edited sequence as target");
+  var originalName = target.name;
+  var targetBin = _binPathOf(target.projectItem);
+  target.name = originalName + " · replaced " + _clockStamp();
+  try { target.projectItem.moveBin(_checkpointBin()); } catch (ex) {}
+  cp.name = originalName;
+  try { cp.projectItem.moveBin(_findBinByPath(targetBin) || _project().rootItem); } catch (ex) {}
+  app.project.openSequence(cp.sequenceID);
+  return {
+    restored: originalName,
+    editedVersionKeptAs: target.name,
+    note: "Nested sequences or other references to the edited version still point to it.",
+  };
+}

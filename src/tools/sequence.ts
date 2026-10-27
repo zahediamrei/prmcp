@@ -52,6 +52,23 @@ export function registerSequenceTools(server: McpServer) {
     ({ sequence, newName }) => run("cloneSequence", [sequence, newName])
   );
 
+  server.tool(
+    "create_checkpoint",
+    "Save a copy of the active sequence in the 'prmcp checkpoints' bin before a multi-step edit. Premiere has no grouped undo for scripted edits; restore_checkpoint reverts everything since the checkpoint in one step.",
+    { label: z.string().optional().describe("Short note, e.g. 'remove intro'") },
+    ({ label }) => run("createCheckpoint", [label])
+  );
+
+  server.tool(
+    "restore_checkpoint",
+    "Put a checkpoint back in place of the sequence it was copied from (takes its name and bin, opens it). The edited version is kept, renamed, in the checkpoints bin.",
+    {
+      checkpoint: seqRef.describe("Checkpoint sequence name or ID"),
+      target: seqRef.optional().describe("Sequence to replace (default: active)"),
+    },
+    ({ checkpoint, target }) => run("restoreCheckpoint", [checkpoint, target])
+  );
+
   server.tool("rename_sequence", "Rename a sequence", { sequence: seqRef, newName: z.string() }, ({ sequence, newName }) =>
     run("renameSequence", [sequence, newName])
   );

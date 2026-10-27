@@ -14,7 +14,7 @@ Good workflow:
 1. get_status, then get_active_sequence and get_timeline_clips to understand the edit.
 2. Make changes. Video clips carry their linked audio along for moves, trims, speed and removal.
 3. Check visual results with export_frame (it returns an image of the rendered frame).
-4. If something went wrong, undo reverts Premiere's last actions.
+4. If something went wrong, undo reverts Premiere's last actions. Scripted multi-step edits are many undo steps; before a large or risky edit call create_checkpoint, and restore_checkpoint reverts it in one step (ripple_delete_range does this automatically).
 
 Notes:
 - ripple_delete_range is the quickest way to cut a section out of everything; trim_clip / remove_clip leave gaps unless ripple is used; close_gaps closes them.
