@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from "ws";
-import { randomBytes, timingSafeEqual } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir, platform } from "os";
 import { dirname, join } from "path";
@@ -92,9 +92,9 @@ function handlePanel(ws: WebSocket) {
   });
 }
 
-// A web page in a browser can open a WebSocket to localhost too, so every connection must show this install's key: a
-// random secret in a file only this user can read, which the panel and other copies of the server read and a web page
-// can't. Same folder on both sides: the panel finds it through CEP's USER_DATA path.
+// A web page in a browser can open a WebSocket to localhost too, so both ends of every connection prove they hold this
+// install's key: a random secret in a file only this user can read, which the panel and other copies of the server read
+// and a web page can't. Same folder on both sides: the panel finds it through CEP's USER_DATA path.
 const KEY_FILE = join(
   platform() === "darwin"
     ? join(homedir(), "Library", "Application Support")
@@ -119,29 +119,56 @@ function installKey(): string {
 
 const KEY = installKey();
 
-function keyOf(url: string | undefined): string {
-  try {
-    return new URL(url ?? "/", "ws://127.0.0.1").searchParams.get("key") ?? "";
-  } catch {
-    return "";
-  }
+// Both sides prove they hold the key without sending it: the server says hello with a random nonce, the client answers
+// with its own nonce and an HMAC of both, and the server answers with an HMAC the other way round. Neither side acts on
+// anything until it has checked the other's proof, so a program that grabbed the port first learns nothing and can't
+// pass commands to the panel.
+function proof(role: "client" | "server", a: string, b: string): string {
+  return createHmac("sha256", KEY).update(`${role}:${a}:${b}`).digest("hex");
 }
 
-function trusted(url: string | undefined, origin: string | undefined): boolean {
-  // Pages on the web are refused outright; everything else still needs the key.
-  if (origin && /^https?:/i.test(origin)) return false;
-  const given = Buffer.from(keyOf(url));
-  const want = Buffer.from(KEY);
-  return given.length === want.length && timingSafeEqual(given, want);
+function same(a: string, b: string): boolean {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+
+const HANDSHAKE_MS = 5000;
+
+// Server side: the connection is handed on only once the client has proved it holds the key.
+function greet(ws: WebSocket, ready: () => void) {
+  const nonce = randomBytes(16).toString("hex");
+  const timer = setTimeout(() => ws.close(4001, "No proof of key"), HANDSHAKE_MS);
+  ws.send(JSON.stringify({ type: "hello", nonce }));
+  ws.once("message", (data) => {
+    clearTimeout(timer);
+    let msg: any;
+    try {
+      msg = JSON.parse(data.toString());
+    } catch {
+      msg = {};
+    }
+    if (msg.type !== "auth" || typeof msg.nonce !== "string" || msg.nonce.length < 16 || !same(msg.proof, proof("client", nonce, msg.nonce))) {
+      console.error("[Bridge] Refused a connection that doesn't hold this install's key");
+      ws.close(4001, "Wrong key");
+      return;
+    }
+    ws.send(JSON.stringify({ type: "welcome", proof: proof("server", msg.nonce, nonce) }));
+    ready();
+  });
+}
+
+function trustedOrigin(origin: string | undefined): boolean {
+  // Pages on the web are refused before the handshake; everything else still has to prove it holds the key.
+  return !(origin && /^https?:/i.test(origin));
 }
 
 function bind() {
   const server = new WebSocketServer({
     port: WS_PORT,
     host: "127.0.0.1",
-    verifyClient: ({ origin, req }: { origin?: string; req: { url?: string } }) => {
-      const ok = trusted(req.url, origin || undefined);
-      if (!ok) console.error(`[Bridge] Refused a connection without this install's key${origin ? ` (from ${origin})` : ""}`);
+    verifyClient: ({ origin }: { origin?: string }) => {
+      const ok = trustedOrigin(origin || undefined);
+      if (!ok) console.error(`[Bridge] Refused a connection from ${origin}`);
       return ok;
     },
   });
@@ -157,24 +184,40 @@ function bind() {
   });
   server.on("listening", () => console.error(`[Bridge] Listening for the Premiere panel on port ${WS_PORT}`));
   server.on("connection", (ws, req) => {
-    if (req.url && req.url.startsWith(RELAY_PATH)) handleRelayClient(ws);
-    else handlePanel(ws);
+    const relay = !!req.url && req.url.startsWith(RELAY_PATH);
+    greet(ws, () => (relay ? handleRelayClient(ws) : handlePanel(ws)));
   });
 }
 
 // Port taken by another server: talk to Premiere through it. If that server
 // goes away, try to take over the port ourselves.
 function connectRelay() {
-  const ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}${RELAY_PATH}?key=${KEY}`);
-  ws.on("open", () => {
-    relaySocket = ws;
-    console.error(`[Bridge] Port ${WS_PORT} owned by another server; relaying through it`);
-  });
+  const ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}${RELAY_PATH}`);
+  // Client side of the handshake: answer the hello, then trust the owner only once its proof checks out.
+  const mine = randomBytes(16).toString("hex");
+  let theirs = "";
+  let trustedOwner = false;
+  const timer = setTimeout(() => ws.close(), HANDSHAKE_MS);
   ws.on("message", (data) => {
     let msg: any;
     try {
       msg = JSON.parse(data.toString());
     } catch {
+      return;
+    }
+    if (!trustedOwner) {
+      if (msg.type === "hello" && !theirs && typeof msg.nonce === "string") {
+        theirs = msg.nonce;
+        ws.send(JSON.stringify({ type: "auth", nonce: mine, proof: proof("client", theirs, mine) }));
+      } else if (msg.type === "welcome" && theirs && same(msg.proof, proof("server", mine, theirs))) {
+        clearTimeout(timer);
+        trustedOwner = true;
+        relaySocket = ws;
+        console.error(`[Bridge] Port ${WS_PORT} owned by another server; relaying through it`);
+      } else {
+        console.error("[Bridge] The program on port " + WS_PORT + " couldn't prove it holds this install's key");
+        ws.close();
+      }
       return;
     }
     if (msg.type === "status") ownerHasPanel = !!msg.connected;

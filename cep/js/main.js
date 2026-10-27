@@ -30,7 +30,8 @@ function toAsciiJson(value) {
   });
 }
 
-// The key the server checks on every connection, from the file only this user can read (see KEY_FILE in bridge.ts).
+// The key both sides prove they hold on every connection, from the file only this user can read (see KEY_FILE in
+// bridge.ts). It never goes over the connection itself.
 function installKey() {
   var path = cs.getSystemPath(SystemPath.USER_DATA) + "/Premiere Connector/key";
   var r = window.cep.fs.readFile(path);
@@ -55,14 +56,10 @@ function connect() {
   // The server writes this install's key the first time it runs; until then there is nothing to connect to.
   var key = installKey();
   if (!key) { scheduleReconnect(); return; }
-  var socket = new WebSocket("ws://127.0.0.1:" + WS_PORT + "/?key=" + key);
+  var socket = new WebSocket("ws://127.0.0.1:" + WS_PORT);
   ws = socket;
-
-  socket.onopen = function () {
-    if (ws !== socket) return;
-    setStatus("Connected to Claude", "connected");
-    log("Connected to MCP server");
-  };
+  // The handshake (see greet in src/bridge.ts): commands are run only after the server has proved it holds the key.
+  var mine = randomNonce(), theirs = "", trusted = false;
 
   socket.onclose = function () {
     if (ws !== socket) return;
@@ -83,8 +80,29 @@ function connect() {
       log("Bad message: " + e.message);
       return;
     }
+    if (!trusted) {
+      if (msg.type === "hello" && !theirs && typeof msg.nonce === "string") {
+        theirs = msg.nonce;
+        socket.send(JSON.stringify({ type: "auth", nonce: mine, proof: hmacSha256(key, "client:" + theirs + ":" + mine) }));
+      } else if (msg.type === "welcome" && theirs && msg.proof === hmacSha256(key, "server:" + mine + ":" + theirs)) {
+        trusted = true;
+        setStatus("Connected to Claude", "connected");
+        log("Connected to MCP server");
+      } else {
+        log("The program on port " + WS_PORT + " couldn't prove it holds this install's key");
+        socket.close();
+      }
+      return;
+    }
     handleCommand(msg);
   };
+}
+
+function randomNonce() {
+  var b = new Uint8Array(16), hex = "";
+  window.crypto.getRandomValues(b);
+  for (var i = 0; i < b.length; i++) hex += ("0" + b[i].toString(16)).slice(-2);
+  return hex;
 }
 
 function handleCommand(msg) {
