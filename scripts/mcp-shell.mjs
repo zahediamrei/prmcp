@@ -2,7 +2,7 @@
 // Development helper: one long-lived MCP client session over the real server,
 // driven over HTTP so tool calls can be scripted step by step.
 //   node scripts/mcp-shell.mjs            (keep running)
-//   curl -s localhost:8099 -d '{"tool":"get_status","args":{}}'
+//   curl -s localhost:8199 -d '{"tool":"get_status","args":{}}'   (MCP_SHELL_PORT sets the port)
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import http from "http";
@@ -27,4 +27,4 @@ http
       res.end(JSON.stringify({ isError: true, text: String(e) }) + "\n");
     }
   })
-  .listen(8099, "127.0.0.1", () => console.log("mcp-shell on 8099"));
+  .listen(Number(process.env.MCP_SHELL_PORT || 8199), "127.0.0.1", () => console.log("mcp-shell on", process.env.MCP_SHELL_PORT || 8199));

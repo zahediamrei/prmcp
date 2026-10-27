@@ -92,10 +92,10 @@ export async function placeText(text: string, start: number, duration: number, s
     maxWidth: style.maxWidth ?? 0.85,
     out: file,
   });
-  const imported = await callPremiere("importMedia", [[file], "MCP Text", false]).catch(async (e) => {
+  const imported = await callPremiere("importMedia", [[file], "Titles", false]).catch(async (e) => {
     if (!/Bin not found/.test(String(e))) throw e;
-    await callPremiere("createBin", ["MCP Text", ""]);
-    return callPremiere("importMedia", [[file], "MCP Text", false]);
+    await callPremiere("createBin", ["Titles", ""]);
+    return callPremiere("importMedia", [[file], "Titles", false]);
   });
   const nodeId = imported.imported[0]?.nodeId;
   if (!nodeId) throw new Error("Rendered text image could not be imported");

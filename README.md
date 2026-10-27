@@ -7,6 +7,8 @@ It comes with a **skill**: the order to work in and the rules learned from real 
 
 Premiere Connector started from [antipaster/Adobe-Premiere-Pro-MCP](https://github.com/antipaster/Adobe-Premiere-Pro-MCP) (MIT) and has been extended a great deal since, together with the skill.
 
+![Premiere Pro with the Premiere Connector panel: a sequence, a title and captions made through Claude](assets/demo.png)
+
 ## How it works
 
 ```
