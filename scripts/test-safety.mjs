@@ -170,6 +170,32 @@ assert.ok(names().every((n) => !n.includes(" · ")), names().join(" | "));
 assert.ok(names().includes("Main"));
 ok("clear_checkpoints empties the bin, leaves Main");
 
+// 14. undo right after a dry run warns that prmcp's own steps are in the history
+ctx.undo = () => ({ undone: 1 });
+await call("close_gaps", { dry_run: true });
+r = await call("undo", {});
+assert.ok(r.note && String(r.note.warning).includes("a dry run"), JSON.stringify(r.all));
+r = await call("undo", {});
+assert.ok(!r.note || !r.note.warning, JSON.stringify(r.all));
+ok("undo after a dry run carries a warning, only once");
+
+// 15. dry run refuses to edit if the preview copy doesn't open
+const realOpen = project.openSequence;
+project.openSequence = function (id) { if (this.sequences.find((s) => s.sequenceID === id)?.name.includes("preview")) return false; return realOpen.call(this, id); };
+const beforeRefuse = JSON.stringify(clips());
+const seqsBefore = project.sequences.length;
+r = await call("ripple_delete_range", { start: 0, end: 2, dry_run: true });
+assert.ok(r.isError && r.all.join(" ").includes("preview copy"), JSON.stringify(r.all));
+assert.equal(JSON.stringify(clips()), beforeRefuse, "the real sequence must not be edited");
+assert.equal(project.sequences.length, seqsBefore, "the copy is cleaned up");
+project.openSequence = realOpen;
+ok("dry run stops, untouched, when the preview copy can't be opened");
+
+// 16. a missing address field is named in the error
+r = await call("remove_clip", { trackIndex: 0, clipIndex: 0 });
+assert.ok(r.isError && r.all.join(" ").includes("missing trackType"), JSON.stringify(r.all));
+ok("missing trackType reported by name");
+
 console.log(`\n${passed} checks passed`);
 panel.close();
 await client.close();

@@ -8,14 +8,14 @@ const instructions = `Tools for editing in Adobe Premiere Pro (the app must be o
 How the timeline is addressed:
 - Times are in seconds. Tracks are 0-based: V1 = video track 0, A1 = audio track 0.
 - Prefer clipId (from get_timeline_clips) to address clips: it stays valid while other edits shift positions. trackType + trackIndex + clipIndex (0-based, left to right) also work, but indexes change after cuts, moves and deletes. A clip cut in two keeps its clipId on the left piece.
-- Every edit returns `changes` (what it did to the timeline). If it also returns `changedOutsidePrmcp`, the user edited the timeline by hand since your last call: take that into account.
+- Every edit returns "changes" (what it did to the timeline). If it also returns "changedOutsidePrmcp", the user edited the timeline by hand since your last call: take that into account.
 - Most edits act on the active sequence (get_active_sequence / set_active_sequence).
 
 Good workflow:
 1. get_status, then get_active_sequence and get_timeline_clips to understand the edit.
 2. Make changes. Video clips carry their linked audio along for moves, trims, speed and removal.
 3. Check visual results with export_frame (it returns an image of the rendered frame).
-4. If something went wrong: risky edits return a `checkpoint`, and restore_checkpoint reverts the whole edit in one step (undo only goes back one scripted step at a time). Before a larger job, call create_checkpoint. Use dry_run: true to preview a structural edit without changing anything.
+4. If something went wrong: risky edits return a "checkpoint", and restore_checkpoint reverts the whole edit in one step (undo only goes back one scripted step at a time). Before a larger job, call create_checkpoint. Use dry_run: true to preview a structural edit without changing anything.
 
 Notes:
 - ripple_delete_range is the quickest way to cut a section out of everything; trim_clip / remove_clip leave gaps unless ripple is used; close_gaps closes them.
