@@ -177,49 +177,29 @@ function razorAllTracks(timeSec) {
 }
 
 // Remove the section between two times on all unlocked tracks and close the gap.
-// This is many separate undo steps in Premiere, so a checkpoint copy of the
-// sequence is taken first; if any step fails the checkpoint is put back.
-function rippleDeleteRange(startSec, endSec, checkpoint) {
+function rippleDeleteRange(startSec, endSec) {
   if (endSec <= startSec) _fail("endTime must be greater than startTime");
   var seq = _seq();
-  var cp = checkpoint === false ? null : _checkpoint("ripple delete");
+  razorAllTracks(startSec);
+  razorAllTracks(endSec);
+  var fd = _frameDuration(seq);
   var removed = 0;
-  try {
-    razorAllTracks(startSec);
-    razorAllTracks(endSec);
-    var fd = _frameDuration(seq);
-    var kinds = [seq.videoTracks, seq.audioTracks];
-    for (var k = 0; k < kinds.length; k++) {
-      for (var t = 0; t < kinds[k].numTracks; t++) {
-        var track = kinds[k][t];
-        if (track.isLocked()) continue;
-        for (var c = track.clips.numItems - 1; c >= 0; c--) {
-          var clip = track.clips[c];
-          if (_sec(clip.start) >= startSec - fd / 2 && _sec(clip.end) <= endSec + fd / 2) {
-            clip.remove(false, true);
-            removed++;
-          }
+  var kinds = [seq.videoTracks, seq.audioTracks];
+  for (var k = 0; k < kinds.length; k++) {
+    for (var t = 0; t < kinds[k].numTracks; t++) {
+      var track = kinds[k][t];
+      if (track.isLocked()) continue;
+      for (var c = track.clips.numItems - 1; c >= 0; c--) {
+        var clip = track.clips[c];
+        if (_sec(clip.start) >= startSec - fd / 2 && _sec(clip.end) <= endSec + fd / 2) {
+          clip.remove(false, true);
+          removed++;
         }
       }
     }
-    _shiftAfter(endSec, startSec - endSec);
-  } catch (ex) {
-    if (!cp) throw ex;
-    var restored = false;
-    try { restoreCheckpoint(cp.id, seq.sequenceID); restored = true; } catch (ex2) {}
-    _fail(
-      "ripple_delete_range failed: " + (ex.message || ex) +
-      (restored
-        ? ". The sequence was rolled back to its state before the edit."
-        : ". Rollback failed; restore with restore_checkpoint \"" + cp.name + "\".")
-    );
   }
-  var out = { removedRange: [startSec, endSec], clipsRemoved: removed };
-  if (cp) {
-    out.checkpoint = cp.name;
-    out.revert = "restore_checkpoint with this checkpoint reverts the whole edit in one step";
-  }
-  return out;
+  _shiftAfter(endSec, startSec - endSec);
+  return { removedRange: [startSec, endSec], clipsRemoved: removed };
 }
 
 // Move every clip that starts at/after `fromSec` by offsetSec, on all unlocked tracks.

@@ -14,7 +14,16 @@ export const clip = {
   clipIndex,
 };
 
-export const clipRef = z.object({ trackType, trackIndex, clipIndex });
+export const clipId = z
+  .string()
+  .describe("Stable clip ID from get_timeline_clips; it stays valid after other edits, unlike clipIndex. Use it instead of trackType + trackIndex + clipIndex.");
+
+export const clipRef = z.object({
+  clipId: clipId.optional(),
+  trackType: trackType.optional(),
+  trackIndex: trackIndex.optional(),
+  clipIndex: clipIndex.optional(),
+});
 
 export const effectRef = z
   .union([z.string(), z.number().int()])
